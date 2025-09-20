@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Laaxcy Web - Lua Obfuscator</title>
+  <link rel="stylesheet" href="/style.css"/>
+  <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-overlay"></div>
+    <div class="hero-content">
+      <h1>Laaxcy Web</h1>
+      <p>#1 Lua 5.1 Obfuscator</p>
+    </div>
+    <canvas id="snow"></canvas>
+  </header>
+
+  <!-- CAPTCHA Gate -->
+  <section id="captcha-section" class="card">
+    <h2>Verifikasi Akses</h2>
+    <p>Selesaikan CAPTCHA untuk menggunakan fitur obfuscator.</p>
+    <div class="h-captcha" data-sitekey="6abef448-7d90-473e-b5a0-f048554c3c9a"></div>
+    <button id="verify-btn" class="btn">Lanjutkan</button>
+    <p id="captcha-msg" class="muted"></p>
+  </section>
+
+  <!-- Terminal Workspace -->
+  <section id="terminal-section" class="card" style="display:none;">
+    <div class="tabs">
+      <button class="tab-btn active" data-preset="Minify">Minify</button>
+      <button class="tab-btn" data-preset="Weak">Weak</button>
+      <button class="tab-btn" data-preset="Medium">Medium</button>
+      <button class="tab-btn" data-preset="Strong">Strong</button>
+      <button class="tab-btn" data-preset="UltraStrong">UltraStrong</button>
+    </div>
+
+    <div class="upload-row">
+      <input type="file" id="fileInput" accept=".lua" class="file-input"/>
+      <button id="startBtn" class="btn">Mulai Obfuscate</button>
+      <span id="selected-file" class="muted"></span>
+    </div>
+
+    <div class="split">
+      <div class="panel">
+        <h3>Log Proses</h3>
+        <pre id="log" class="log"></pre>
+      </div>
+      <div class="panel">
+        <h3>Hasil</h3>
+        <textarea id="result" class="result" readonly></textarea>
+        <div class="row">
+          <button id="copyBtn" class="btn secondary">Copy</button>
+          <button id="downloadBtn" class="btn">Download</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer muted">
+    Laaxcy Web — Obfuscator antarmuka untuk Prometheus (AGPLv3). Frontend custom, deploy di Vercel.
+  </footer>
+
+  <script>
+    // UI state
+    let selectedPreset = 'Minify';
+    let captchaToken = null;
+
+    // Tabs for presets
+    document.addEventListener('click', (e) => {
+      if (e.target.classList.contains('tab-btn')) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        selectedPreset = e.target.dataset.preset;
+      }
+    });
+
+    // Watch file input
+    const fileInput = document.getElementById('fileInput');
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files[0];
+      document.getElementById('selected-file').textContent = f ? 'File: ' + f.name : '';
+    });
+
+    // CAPTCHA gate
+    document.getElementById('verify-btn').addEventListener('click', async () => {
+      const token = document.querySelector('[name="h-captcha-response"]')?.value;
+      const msg = document.getElementById('captcha-msg');
+      if (!token) {
+        msg.textContent = 'Harap selesaikan CAPTCHA terlebih dahulu.';
+        return;
+      }
+      // Optional: ping server to pre-verify (we will verify again at server)
+      captchaToken = token;
+      document.getElementById('captcha-section').style.display = 'none';
+      document.getElementById('terminal-section').style.display = 'block';
+    });
+
+    // Start obfuscation
+    document.getElementById('startBtn').addEventListener('click', async () => {
+      const file = fileInput.files[0];
+      if (!file) {
+        alert('Pilih file Lua terlebih dahulu!');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        const code = e.target.result;
+        logLine('Mengunggah dan memulai obfuscasi...');
+        try {
+          const res = await fetch('/api/obfuscate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              code,
+              preset: selectedPreset,
+              captchaToken
+            })
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            logLine('Gagal: ' + (data.error || res.statusText));
+            return;
+          }
+          logLine('Berhasil!');
+          document.getElementById('result').value = data.result;
+        } catch (err) {
+          logLine('Error jaringan/servis.');
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    // Log helper
+    function logLine(txt) {
+      const el = document.getElementById('log');
+      el.textContent += (el.textContent ? '\n' : '') + txt;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    // Copy & Download
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      const val = document.getElementById('result').value;
+      if (!val) return;
+      navigator.clipboard.writeText(val);
+      logLine('Hasil disalin ke clipboard.');
+    });
+
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+      const val = document.getElementById('result').value;
+      if (!val) return;
+      const blob = new Blob([val], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'obfuscated.lua';
+      a.click();
+      URL.revokeObjectURL(url);
+      logLine('Hasil diunduh.');
+    });
+
+    // Snow effect
+    const canvas = document.getElementById('snow');
+    const ctx = canvas.getContext('2d');
+    let snowflakes = [];
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = document.querySelector('.hero').offsetHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+    function addFlake() {
+      snowflakes.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: Math.random() * 2 + 1,
+        s: Math.random() * 0.8 + 0.2
+      });
+      if (snowflakes.length > 400) snowflakes.shift();
+    }
+    function step() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      for (const f of snowflakes) {
+        f.y += f.s;
+        f.x += Math.sin(f.y * 0.01) * 0.3;
+        if (f.y > canvas.height) f.y = -5;
+        ctx.moveTo(f.x, f.y);
+        ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+      }
+      ctx.fill();
+      requestAnimationFrame(step);
+    }
+    setInterval(addFlake, 30);
+    step();
+  </script>
+</body>
+</html>
